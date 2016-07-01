@@ -1,13 +1,12 @@
 'use strict'
 
 var debug = require('debug')('connect-postgrest-session')
-
 var util = require('util')
 
 module.exports = function (session) {
   var Store = session.Store || session.session.Store
 
-  var PostgrestSessionStore = function (options) {
+  function PostgrestSessionStore (options) {
     options = options || {}
     Store.call(this, options)
 
@@ -28,19 +27,8 @@ module.exports = function (session) {
       }.bind(this))
     }
   }
-
-  /**
-   * Inherit from `Store`.
-   */
   util.inherits(PostgrestSessionStore, Store)
 
-  /**
-   * Closes the session store
-   *
-   * Currently only stops the automatic pruning, if any, from continuing
-   *
-   * @access public
-   */
   PostgrestSessionStore.prototype.close = function () {
     var self = this
     self.closed = true
@@ -49,18 +37,8 @@ module.exports = function (session) {
       clearTimeout(self.pruneTimer)
       self.pruneTimer = undefined
     }
-
-    if (self.ownsPg) {
-      self.pg.end()
-    }
   }
 
-  /**
-   * Does garbage collection for expired session in the database
-   *
-   * @param {Function} [fn] - standard Node.js callback called on completion
-   * @access public
-   */
   PostgrestSessionStore.prototype.pruneSessions = function (callback) {
     var self = this
 
@@ -68,8 +46,10 @@ module.exports = function (session) {
       callback = function noop () {}
     }
 
+    var epoch = Math.floor(new Date().getTime() / 1000)
+
     self.postgrest.delete({
-      url: '/sessions?expire=lt.NOW()'
+      url: '/sessions?expire=lt.' + epoch
     }, function (err, res, body) {
       if (err) {
         debug('error: %j', err)
@@ -87,13 +67,6 @@ module.exports = function (session) {
     })
   }
 
-  /**
-   * Figure out when a session should expire
-   *
-   * @param {Number} [maxAge] - the maximum age of the session cookie
-   * @return {Number} the unix timestamp, in seconds
-   * @access private
-   */
   PostgrestSessionStore.prototype.getExpireTime = function (maxAge) {
     var ttl = this.ttl
 
@@ -103,13 +76,6 @@ module.exports = function (session) {
     return ttl
   }
 
-  /**
-   * Attempt to fetch session by the given `sid`.
-   *
-   * @param {String} sid – the session id
-   * @param {Function} fn – a standard Node.js callback returning the parsed session object
-   * @access public
-   */
   PostgrestSessionStore.prototype.get = function (sid, callback) {
     var self = this
 
@@ -135,6 +101,7 @@ module.exports = function (session) {
       }
 
       try {
+        debug('get - success - data: %j', data)
         return callback(null, data.sess)
       } catch (e) {
         debug('get try callback error: %j', e)
@@ -143,20 +110,11 @@ module.exports = function (session) {
     })
   }
 
-  /**
-   * Commit the given `sess` object associated with the given `sid`.
-   *
-   * @param {String} sid – the session id
-   * @param {Object} sess – the session object to store
-   * @param {Function} fn – a standard Node.js callback returning the parsed session object
-   * @access public
-   */
   PostgrestSessionStore.prototype.set = function (sid, sess, callback) {
     var self = this
     var expireTime = this.getExpireTime(sess.cookie.maxAge)
 
     debug('set - sid: %s', sid)
-
     self.postgrest.get('/sessions?sid=eq.' + sid, function (err, res, data) {
       if (err) {
         debug('set get error: %j', err)
@@ -165,7 +123,7 @@ module.exports = function (session) {
 
       if (data.length === 0) {
         // created
-        self.postgrest.post({
+        return self.postgrest.post({
           url: '/sessions',
           body: {
             sess: sess,
@@ -179,38 +137,29 @@ module.exports = function (session) {
           }
 
           debug('set create success')
-          callback()
+          return callback()
         })
-      } else if (data.length > 0) {
-        self.postgrest.patch({
-          url: '/sessions?sid=eq.' + sid,
-          body: {
-            sess: sess,
-            expire: expireTime,
-            sid: sid
-          }
-        }, function (err, res, data) {
-          if (err) {
-            debug('set update error: %j', err)
-            return callback(err)
-          }
-
-          debug('set update success')
-          callback()
-        })
-      } else {
-        debug('if you see this, this is bad :)')
-        callback()
       }
+
+      debug('set update data: %j', {sess: sess, expire: expireTime, sid: sid})
+      self.postgrest.patch({
+        url: '/sessions?sid=eq.' + sid,
+        body: {
+          sess: sess,
+          expire: expireTime
+        }
+      }, function (err, res, data) {
+        if (err) {
+          debug('set update error: %j', err)
+          return callback(err)
+        }
+
+        debug('set update success')
+        return callback()
+      })
     })
   }
 
-  /**
-   * Destroy the session associated with the given `sid`.
-   *
-   * @param {String} sid – the session id
-   * @access public
-   */
   PostgrestSessionStore.prototype.destroy = function (sid, callback) {
     var self = this
 
@@ -231,18 +180,10 @@ module.exports = function (session) {
       }
 
       debug('session delete success')
-      callback()
+      return callback()
     })
   }
 
-  /**
-   * Touch the given session object associated with the given session ID.
-   *
-   * @param {String} sid – the session id
-   * @param {Object} sess – the session object to store
-   * @param {Function} fn – a standard Node.js callback returning the parsed session object
-   * @access public
-   */
   PostgrestSessionStore.prototype.touch = function (sid, sess, callback) {
     var self = this
     var expireTime = this.getExpireTime(sess.cookie.maxAge)
@@ -263,7 +204,7 @@ module.exports = function (session) {
       }
 
       debug('session touch success')
-      callback()
+      return callback()
     })
   }
 

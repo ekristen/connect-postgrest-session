@@ -1,6 +1,6 @@
 {
   "name": "connect-postgrest-session",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Connect/Express PostgREST Session Store Module",
   "main": "postgrest-session.js",
   "scripts": {
